@@ -1,0 +1,511 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="theme-color" content="#12161a">
+	<meta name="description" content="Flightradar24 style live air traffic tracker with real-time ADS-B flight paths, cockpit view, airline routes, and aviation weather.">
+	<title>Flightradar24 | Live Flight Tracker</title>
+	<link rel="preconnect" href="https://fonts.googleapis.com">
+	<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+	<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+	<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+	<link rel="stylesheet" href="style.css?v=fr24-theme-1">
+</head>
+<body class="fr24-dark">
+	<!-- Top Navigation Bar (FR24 Style) -->
+	<header class="topbar">
+		<a class="brand" href="#" aria-label="Flightradar24 home">
+			<span class="fr24-radar-disc" aria-hidden="true">
+				<span class="radar-sweep"></span>
+				<svg viewBox="0 0 24 24" class="radar-plane-icon"><path d="M12 2C11.5 2 11 2.5 11 3L11 9L3 13V15L11 12.5V18.5L8.5 20.5V22L12 21L15.5 22V20.5L13 18.5V12.5L21 15V13L13 9L13 3C13 2.5 12.5 2 12 2Z"/></svg>
+			</span>
+			<span class="brand-text">
+				<strong class="brand-fr">FLIGHTRADAR</strong><span class="brand-24">24</span>
+			</span>
+		</a>
+
+		<div class="header-divider" aria-hidden="true"></div>
+
+		<!-- Global Search Box -->
+		<div class="search-wrap">
+			<form class="search-form" id="searchForm" role="search">
+				<span class="search-icon" aria-hidden="true">
+					<svg viewBox="0 0 20 20" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8.5" cy="8.5" r="5.5"/><line x1="13" y1="13" x2="18" y2="18"/></svg>
+				</span>
+				<input id="flightSearch" type="search" placeholder="Search flight (UA1746), reg (N37447), airport (JFK), airline (DAL)" aria-label="Search live flights, airports, and airlines" autocomplete="off" aria-controls="searchResults">
+				<kbd>/</kbd>
+			</form>
+			<div class="search-results" id="searchResults" role="listbox" aria-label="Search results" hidden></div>
+		</div>
+
+		<!-- Header Quick Actions -->
+		<div class="header-actions">
+			<button class="header-btn" id="topTrackedHeaderBtn" type="button" title="Top 10 Most Tracked Flights">
+				<span class="fire-icon">🔥</span>
+				<span class="btn-text">Most Tracked</span>
+				<span class="badge" id="topTrackedBadge">10</span>
+			</button>
+
+			<button class="header-btn" id="weatherRadarHeaderBtn" type="button" title="Toggle Live Rain/Precipitation Radar">
+				<span class="icon">🌦</span>
+				<span class="btn-text">Weather Radar</span>
+			</button>
+
+			<button class="header-btn" id="simEmergencyBtn" type="button" title="Test Squawk 7700 Emergency Alert">
+				<span class="icon">🚨</span>
+				<span class="btn-text">7700 Alert</span>
+			</button>
+		</div>
+
+		<!-- Header Right: Clock & Status -->
+		<div class="header-right">
+			<div class="clock-group">
+				<span class="utc-clock" id="utcClock">--:--:-- UTC</span>
+			</div>
+			<span class="live-indicator"><span class="live-dot"></span> LIVE</span>
+		</div>
+	</header>
+
+	<!-- Emergency Squawk 7700 Alert Banner -->
+	<aside class="emergency-banner" id="squawkEmergencyBanner" hidden aria-live="assertive">
+		<div class="emergency-content">
+			<span class="emergency-siren">🚨</span>
+			<span class="emergency-text"><strong>SQUAWK 7700 EMERGENCY:</strong> <span id="emergencyFlightText">Flight reporting emergency</span></span>
+			<button class="emergency-action-btn" id="emergencyTrackBtn" type="button">TRACK FLIGHT ➔</button>
+			<button class="emergency-dismiss" id="emergencyDismissBtn" type="button" aria-label="Dismiss alert">×</button>
+		</div>
+	</aside>
+
+	<main class="workspace">
+		<!-- Map Stage -->
+		<section class="map-stage" aria-label="Flightradar24 Live Map">
+			<div id="map" role="application" aria-label="Interactive map showing live aircraft"></div>
+
+			<!-- Iconic FR24 Floating Flight Details Card -->
+			<article class="flight-info-card" id="flightInfoCard" aria-label="Selected flight details" hidden>
+				<!-- Airline & Flight Header -->
+				<header class="flight-card-header">
+					<div class="airline-brand-row">
+						<div class="airline-logo-box" id="airlineLogoBox">
+							<img class="airline-logo" id="airlineLogo" src="" alt="Airline Logo" hidden>
+							<span class="airline-code-badge" id="airlineFallbackBadge">AIR</span>
+						</div>
+						<div class="flight-ident-block">
+							<div class="flight-callsign-line">
+								<strong id="flightCardCallsign">--</strong>
+								<span class="flight-status-badge" id="flightCardStatusBadge">EN ROUTE</span>
+							</div>
+							<div class="flight-sub-ident">
+								<span id="flightCardAirline">Airline</span> · <span id="flightCardHex">--</span>
+							</div>
+						</div>
+					</div>
+					<button class="flight-card-close" id="flightCardClose" type="button" title="Close flight details" aria-label="Close flight details">×</button>
+				</header>
+
+				<!-- Aircraft Image Preview -->
+				<div class="flight-aircraft-preview">
+					<div class="aircraft-type-banner">
+						<span class="ac-type" id="flightCardType">Boeing 737 MAX 9</span>
+						<span class="ac-reg" id="flightCardReg">N37447</span>
+					</div>
+				</div>
+
+				<!-- Route Banner with Departure and Arrival -->
+				<div class="route-display">
+					<div class="route-endpoint origin-box">
+						<span class="airport-iata" id="flightCardOriginIata">---</span>
+						<span class="airport-city" id="flightCardOriginCity">Departure</span>
+						<span class="flight-time-label" id="flightCardDepTime">STD --:--</span>
+					</div>
+					<div class="route-center-flow">
+						<div class="route-plane-visual">
+							<span class="route-flow-line"></span>
+							<span class="route-flow-plane" id="routeFlowPlane">✈</span>
+						</div>
+						<span class="route-dist-label" id="routeDistanceLabel">CALCULATING ROUTE</span>
+					</div>
+					<div class="route-endpoint destination-box">
+						<span class="airport-iata" id="flightCardDestIata">---</span>
+						<span class="airport-city" id="flightCardDestCity">Arrival</span>
+						<span class="flight-time-label" id="flightCardArrTime">STA --:--</span>
+					</div>
+				</div>
+
+				<!-- Flight Action Toolbar (FR24 Style) -->
+				<div class="flight-action-bar">
+					<button class="action-btn" id="cockpitViewBtn" type="button" title="Open 3D Cockpit View Simulator">
+						<span class="btn-icon">🛰</span>
+						<span>3D Cockpit</span>
+					</button>
+					<button class="action-btn" id="followAircraftBtn" type="button" title="Lock camera to follow this aircraft">
+						<span class="btn-icon">📍</span>
+						<span id="followBtnText">Follow</span>
+					</button>
+					<button class="action-btn" id="fitRouteBtn" type="button" title="Zoom to fit full flight path">
+						<span class="btn-icon">✈</span>
+						<span>Route</span>
+					</button>
+					<button class="action-btn" id="shareFlightBtn" type="button" title="Share flight details">
+						<span class="btn-icon">🔗</span>
+						<span>Share</span>
+					</button>
+				</div>
+
+				<!-- Telemetry Gauge Grid -->
+				<div class="telemetry-grid">
+					<div class="telemetry-cell">
+						<span class="label">CALIBRATED ALTITUDE</span>
+						<div class="value-row">
+							<strong id="flightCardAltitude">-- ft</strong>
+							<span class="vs-indicator" id="flightCardVsIndicator">→</span>
+						</div>
+						<small id="flightCardVsText">0 ft/min</small>
+					</div>
+
+					<div class="telemetry-cell">
+						<span class="label">GROUND SPEED</span>
+						<div class="value-row">
+							<strong id="flightCardSpeed">-- kt</strong>
+						</div>
+						<small id="flightCardSpeedSub">-- mph · -- km/h</small>
+					</div>
+
+					<div class="telemetry-cell">
+						<span class="label">TRACK / HEADING</span>
+						<div class="value-row">
+							<strong id="flightCardHeading">--°</strong>
+						</div>
+						<small id="flightCardHeadingCompass">North</small>
+					</div>
+
+					<div class="telemetry-cell">
+						<span class="label">SQUAWK</span>
+						<div class="value-row">
+							<strong class="squawk-code" id="flightCardSquawk">----</strong>
+						</div>
+						<small id="flightCardSquawkMode">Mode-S</small>
+					</div>
+				</div>
+
+				<!-- Tabs for in-depth data -->
+				<div class="flight-card-tabs" role="tablist" aria-label="Selected flight details views">
+					<button class="flight-card-tab active" id="tabOverview" role="tab" aria-selected="true" data-tab="overview" type="button">Overview</button>
+					<button class="flight-card-tab" id="tabOps" role="tab" aria-selected="false" data-tab="ops" type="button">Operations</button>
+					<button class="flight-card-tab" id="tabAcars" role="tab" aria-selected="false" data-tab="acars" type="button">ACARS</button>
+				</div>
+
+				<div class="card-pane" id="paneOverview">
+					<div class="specs-grid">
+						<div><span>AIRCRAFT MODEL</span><strong id="flightCardModel">--</strong></div>
+						<div><span>REGISTRATION</span><strong id="flightCardRegistration">--</strong></div>
+						<div><span>MODE-S HEX</span><strong id="flightCardHexRaw">--</strong></div>
+						<div><span>CATEGORY</span><strong id="flightCardCategory">--</strong></div>
+						<div><span>LAT / LON</span><strong id="flightCardPosition">--</strong></div>
+						<div><span>LAST PING</span><strong id="flightCardLastSeen">--</strong></div>
+					</div>
+					<div class="route-status-note" id="flightCardRouteStatus">Route verified via live ADS-B &amp; AirLabs feed</div>
+				</div>
+
+				<div class="card-pane" id="paneOps" hidden>
+					<div class="ops-timetable">
+						<div class="ops-row"><span>STD · SCHEDULED</span><strong id="flightCardStd">--</strong></div>
+						<div class="ops-row"><span>ATD · ACTUAL</span><strong id="flightCardAtd">--</strong></div>
+						<div class="ops-row"><span>STA · SCHEDULED</span><strong id="flightCardSta">--</strong></div>
+						<div class="ops-row"><span>ETA · ESTIMATED</span><strong id="flightCardEta">--</strong></div>
+						<div class="ops-row"><span>DEPARTURE TERMINAL / GATE</span><strong id="flightCardDepGate">--</strong></div>
+						<div class="ops-row"><span>ARRIVAL TERMINAL / GATE</span><strong id="flightCardArrGate">--</strong></div>
+						<div class="ops-row"><span>BAGGAGE CAROUSEL</span><strong id="flightCardBaggage">--</strong></div>
+						<div class="ops-row"><span>FLIGHT DURATION</span><strong id="flightCardDuration">--</strong></div>
+					</div>
+				</div>
+
+				<div class="card-pane" id="paneAcars" hidden>
+					<div class="acars-feed-header">
+						<span>LIVE ACARS RECEIVER</span>
+						<button class="acars-refresh" id="acarsRefresh" type="button" title="Refresh ACARS messages">↻</button>
+					</div>
+					<div class="acars-message-list" id="acarsMessages">
+						<div class="acars-empty">No ACARS messages logged for this aircraft.</div>
+					</div>
+				</div>
+			</article>
+
+			<!-- 3D Cockpit HUD View Modal (FR24 Cockpit Perspective) -->
+			<div class="cockpit-modal" id="cockpitModal" hidden aria-modal="true" role="dialog" aria-label="3D Cockpit View Simulator">
+				<div class="cockpit-header">
+					<div class="cockpit-title">
+						<span class="hud-pill">3D COCKPIT PERSPECTIVE</span>
+						<strong id="hudFlightCallsign">FLIGHT 3D VIEW</strong>
+						<span id="hudAircraftType">Boeing 737</span>
+					</div>
+					<button class="cockpit-close-btn" id="cockpitCloseBtn" type="button" title="Exit Cockpit View">EXIT COCKPIT ✕</button>
+				</div>
+
+				<!-- Windshield Frame & HUD Overlay -->
+				<div class="cockpit-viewport">
+					<div id="cockpitMap" class="cockpit-underlay-map"></div>
+					<div class="windshield-glare"></div>
+
+					<!-- Head-Up Display (HUD) Layer -->
+					<div class="hud-layer">
+						<!-- Top Compass Ribbon -->
+						<div class="hud-compass-wrap">
+							<div class="hud-compass-tape" id="hudCompassTape"></div>
+							<div class="hud-compass-marker">▼</div>
+							<div class="hud-compass-numeric" id="hudHeadingVal">000°</div>
+						</div>
+
+						<!-- Left Airspeed Tape -->
+						<div class="hud-tape-box hud-speed-box">
+							<span class="hud-tape-title">SPEED (KT)</span>
+							<div class="hud-tape-val" id="hudSpeedVal">000</div>
+							<div class="hud-tape-sub" id="hudMachVal">M 0.00</div>
+						</div>
+
+						<!-- Center Artificial Horizon & Pitch Ladder -->
+						<div class="hud-horizon-center">
+							<div class="hud-pitch-ladder" id="hudPitchLadder">
+								<div class="ladder-line pos10"><span>+10</span></div>
+								<div class="ladder-line zero"></div>
+								<div class="ladder-line neg10"><span>-10</span></div>
+							</div>
+							<div class="hud-boresight">
+								<span class="wing left"></span>
+								<span class="reticle-dot"></span>
+								<span class="wing right"></span>
+							</div>
+						</div>
+
+						<!-- Right Altitude Tape -->
+						<div class="hud-tape-box hud-alt-box">
+							<span class="hud-tape-title">ALT (FT)</span>
+							<div class="hud-tape-val" id="hudAltVal">00,000</div>
+							<div class="hud-vs-box" id="hudVsVal">+0 FPM</div>
+						</div>
+
+						<!-- Bottom Flight Status Readout -->
+						<div class="hud-bottom-telemetry">
+							<div><span>ORIGIN / DEST</span><strong id="hudRouteText">--- ➔ ---</strong></div>
+							<div><span>POSITION</span><strong id="hudCoordsText">0.000, 0.000</strong></div>
+							<div><span>SQUAWK</span><strong id="hudSquawkText">----</strong></div>
+							<div><span>RADAR SENSOR</span><strong id="hudSensorText">ADS-B LIVE</strong></div>
+						</div>
+					</div>
+				</div>
+			</div>
+
+			<!-- Top 10 Most Tracked Floating Drawer -->
+			<div class="most-tracked-drawer" id="mostTrackedDrawer" hidden>
+				<div class="drawer-header">
+					<div class="drawer-title">
+						<span class="fire-icon">🔥</span>
+						<strong>TOP 10 MOST TRACKED FLIGHTS</strong>
+					</div>
+					<button class="drawer-close" id="mostTrackedClose" type="button" aria-label="Close Top 10 panel">×</button>
+				</div>
+				<div class="most-tracked-list" id="mostTrackedList">
+					<!-- Dynamically populated top flights -->
+				</div>
+			</div>
+
+			<!-- Airspace Heading Overlay -->
+			<div class="map-heading">
+				<div class="map-heading-title">
+					<span class="eyebrow">AIRSPACE RADAR</span>
+					<span class="region-name" id="regionName">SCANNING REGION</span>
+				</div>
+				<div class="map-count">
+					<span id="mapFlightCount">--</span>
+					<span>aircraft tracked</span>
+				</div>
+			</div>
+
+			<!-- Map Floating Controls (FR24 Style) -->
+			<div class="map-tools" aria-label="Map tools">
+				<div class="tool-dropdown-wrap">
+					<button class="map-tool" id="mapLayersBtn" type="button" title="Map Layers &amp; Styles">
+						<span aria-hidden="true">🗺</span>
+					</button>
+					<div class="layers-dropdown" id="layersDropdown" hidden>
+						<span class="dropdown-heading">BASE MAP STYLE</span>
+						<button class="layer-opt active" data-map-style="dark" type="button">FR24 Dark Radar</button>
+						<button class="layer-opt" data-map-style="satellite" type="button">Satellite Imagery</button>
+						<button class="layer-opt" data-map-style="voyager" type="button">Aviation Light</button>
+						<button class="layer-opt" data-map-style="osm" type="button">OpenStreetMap</button>
+
+						<div class="dropdown-divider"></div>
+						<span class="dropdown-heading">RADAR &amp; OVERLAYS</span>
+						<label class="layer-check-row">
+							<input type="checkbox" id="checkWeatherRadar">
+							<span>Live Rain Radar (RainViewer)</span>
+						</label>
+						<label class="layer-check-row">
+							<input type="checkbox" id="checkDayNight" checked>
+							<span>Day / Night Shadow</span>
+						</label>
+						<label class="layer-check-row">
+							<input type="checkbox" id="checkAirportPins" checked>
+							<span>Airport Markers</span>
+						</label>
+						<label class="layer-check-row">
+							<input type="checkbox" id="checkAltitudeColors">
+							<span>Color Aircraft by Altitude</span>
+						</label>
+					</div>
+				</div>
+
+				<button class="map-tool" id="radarToggleMapBtn" type="button" title="Toggle Live Rain Radar">
+					<span aria-hidden="true">🌦</span>
+				</button>
+				<button class="map-tool" id="locateButton" type="button" title="Center on my GPS position">
+					<span aria-hidden="true">◎</span>
+				</button>
+				<button class="map-tool" id="refreshButton" type="button" title="Refresh Live Traffic">
+					<span aria-hidden="true">↻</span>
+				</button>
+			</div>
+
+			<!-- Map Footer Status Pill -->
+			<div class="map-footer">
+				<span class="coverage-pill" id="coveragePill">
+					<span class="coverage-dot"></span>
+					<span id="coverageText">CONNECTING TO ADS-B NETWORK</span>
+				</span>
+				<div class="map-footer-right">
+					<span class="unit-toggle-pill" id="unitsToggleBtn" title="Toggle Units (Nautical vs Metric)">UNITS: KTS · FT</span>
+					<span class="map-attribution-note">Live ADS-B &amp; AirLabs Feed</span>
+				</div>
+			</div>
+
+			<div class="map-loading" id="mapLoading"><span class="loading-ring"></span><span>Acquiring air traffic telemetry…</span></div>
+			<div class="map-toast" id="mapToast" role="status" aria-live="polite"></div>
+		</section>
+
+		<!-- Right Side Tabbed Intelligence Panel -->
+		<aside class="side-panel" aria-label="Flight Intelligence">
+			<div class="panel-tabs" role="tablist" aria-label="Aviation panels">
+				<button class="panel-tab active" id="trafficTab" role="tab" aria-selected="true" aria-controls="trafficView" type="button">Flights <span class="tab-count" id="tabFlightCount">--</span></button>
+				<button class="panel-tab" id="airportsTab" role="tab" aria-selected="false" aria-controls="airportsView" type="button">Airports <span class="tab-count" id="airportCount">--</span></button>
+				<button class="panel-tab" id="weatherTab" role="tab" aria-selected="false" aria-controls="weatherView" type="button">Weather</button>
+				<button class="panel-tab" id="topTrackedTab" role="tab" aria-selected="false" aria-controls="topTrackedView" type="button">Top 10 🔥</button>
+			</div>
+
+			<!-- Tab 1: Live Flights View -->
+			<section class="panel-view" id="trafficView" role="tabpanel" aria-labelledby="trafficTab">
+				<div class="panel-intro">
+					<div>
+						<p class="eyebrow">LIVE RADAR FEED</p>
+						<h1>Tracked Aircraft</h1>
+					</div>
+					<span class="updated-label" id="updatedLabel">Waiting for data</span>
+				</div>
+
+				<div class="filter-row">
+					<label class="filter-select-wrap">
+						<span class="sr-only">Filter aircraft</span>
+						<select id="trafficFilter" aria-label="Filter aircraft">
+							<option value="all">All Aircraft</option>
+							<option value="airliner">Commercial Airliners</option>
+							<option value="altitude">Above 20,000 ft (FL200+)</option>
+							<option value="low">Below 10,000 ft</option>
+							<option value="emergency">Squawk 7700 / Emergencies</option>
+						</select>
+					</label>
+					<button class="sort-button" id="sortButton" type="button" title="Sort flights">NEAREST <span aria-hidden="true">↕</span></button>
+				</div>
+
+				<div class="flight-list" id="flightList" aria-live="polite">
+					<div class="empty-state"><span class="empty-mark" aria-hidden="true">✳</span><p>Scanning airspace frequencies…</p></div>
+				</div>
+
+				<div class="selection-panel" id="selectionPanel" aria-live="polite">
+					<div class="selection-empty">
+						<span class="selection-crosshair" aria-hidden="true">＋</span>
+						<span>Click an aircraft on the radar or in the list to inspect telemetry and route.</span>
+					</div>
+				</div>
+
+				<div class="data-source">
+					<span class="source-mark">ADS-B</span>
+					<span>Live Global Feed · 45s Polling</span>
+					<a href="https://adsb.lol/" target="_blank" rel="noreferrer">Feed ↗</a>
+				</div>
+			</section>
+
+			<!-- Tab 2: Airports & Arrival/Departure Boards View -->
+			<section class="panel-view airports-view" id="airportsView" role="tabpanel" aria-labelledby="airportsTab" hidden>
+				<div class="panel-intro">
+					<div>
+						<p class="eyebrow">AIRPORT RADAR</p>
+						<h1>Nearby Airports</h1>
+					</div>
+					<span class="updated-label" id="airportUpdated">Zoom in to load</span>
+				</div>
+
+				<div class="airport-list" id="airportList" aria-live="polite">
+					<div class="empty-state"><span class="empty-mark" aria-hidden="true">⌖</span><p>Airports appear as you zoom into the radar map.</p></div>
+				</div>
+
+				<div class="airport-detail-panel" id="airportDetailPanel" aria-live="polite">
+					<div class="selection-empty"><span class="selection-crosshair" aria-hidden="true">＋</span><span>Select an airport pin to view photo, METAR, and flight board.</span></div>
+				</div>
+
+				<div class="data-source">
+					<span class="source-mark">AIRPORTS</span>
+					<span>OurAirports &amp; Live Boards</span>
+				</div>
+			</section>
+
+			<!-- Tab 3: Aviation Weather (METAR) View -->
+			<section class="panel-view weather-view" id="weatherView" role="tabpanel" aria-labelledby="weatherTab" hidden>
+				<div class="panel-intro">
+					<div>
+						<p class="eyebrow">AVIATION WEATHER</p>
+						<h1>Airport METAR</h1>
+					</div>
+				</div>
+
+				<form class="airport-form" id="airportForm">
+					<label for="airportCode">ICAO Station Code</label>
+					<div class="airport-input-row">
+						<input id="airportCode" maxlength="4" value="KJFK" placeholder="e.g. KJFK" autocomplete="off" spellcheck="false">
+						<button type="submit">Fetch METAR <span aria-hidden="true">→</span></button>
+					</div>
+				</form>
+
+				<div class="weather-result" id="weatherResult" aria-live="polite">
+					<div class="weather-placeholder"><span class="weather-glyph" aria-hidden="true">◌</span><p>Enter an ICAO code to check METAR observations.</p></div>
+				</div>
+
+				<div class="weather-footnote">METAR observations supplied by NOAA Aviation Weather Center.</div>
+			</section>
+
+			<!-- Tab 4: Top 10 Most Tracked Flights View -->
+			<section class="panel-view top-tracked-view" id="topTrackedView" role="tabpanel" aria-labelledby="topTrackedTab" hidden>
+				<div class="panel-intro">
+					<div>
+						<p class="eyebrow">GLOBAL TRENDING</p>
+						<h1>Top 10 Tracked</h1>
+					</div>
+					<span class="updated-label">Real-time ranking</span>
+				</div>
+
+				<div class="top-tracked-tab-list" id="topTrackedTabList">
+					<!-- Populated by JavaScript -->
+				</div>
+
+				<div class="data-source">
+					<span class="source-mark">TRENDING</span>
+					<span>Based on global interest &amp; active flights</span>
+				</div>
+			</section>
+		</aside>
+	</main>
+
+	<!-- Leaflet & App JS -->
+	<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+	<script src="app.js?v=fr24-theme-1"></script>
+</body>
+</html>
